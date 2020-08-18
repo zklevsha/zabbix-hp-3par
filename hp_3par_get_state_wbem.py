@@ -78,7 +78,7 @@ def convert_to_zabbix_json(data):
 
 
 
-def send_data_to_zabbix(zabbix_data, storage_name):
+def send_data_to_zabbix(zabbix_data, storage_name, zbx_ip, zbx_port):
 	sender_command = "/usr/bin/zabbix_sender"
 	config_path = "/etc/zabbix/zabbix_agentd.conf"
 	time_of_create_file = int(time.time())
@@ -87,7 +87,13 @@ def send_data_to_zabbix(zabbix_data, storage_name):
 	with open(temp_file, "w") as f:
 		f.write("")
 		f.write("\n".join(zabbix_data))
-	send_to_zabbix = subprocess.Popen([sender_command, "-vv", "-c", config_path, "-s", storage_name, "-T", "-i", temp_file], stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+	if not zbx_ip or not zbx_port:
+		param = [sender_command, "-vv", "-c", config_path,
+				"-s", storage_name, "-T", "-i", temp_file]
+	else:
+		param = [sender_command, "-vv", "-z", zbx_ip, "-p", zbx_port,
+				"-s", storage_name, "-T", "-i", temp_file]
+	send_to_zabbix = subprocess.Popen(param, stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
 	send_to_zabbix.wait()
 	os.remove(temp_file)
 	hp_logger.info(send_to_zabbix.communicate())
@@ -159,7 +165,7 @@ def discovery_psu_for_node_controllers(hp_connect):
 
 
 
-def discovering_resources(hp_user, hp_password, hp_ip, hp_port, storage_name, list_CIM_classes):
+def discovering_resources(hp_user, hp_password, hp_ip, hp_port, storage_name, list_CIM_classes, zbx_ip, zbx_port):
 	hp_connect = hp_wbem_connect(hp_user, hp_password, hp_ip, hp_port)
 
 	list_CIM_classes.remove('TPD_CagePowerSupply')
@@ -209,11 +215,11 @@ def discovering_resources(hp_user, hp_password, hp_ip, hp_port, storage_name, li
 		hp_logger.error("An error occurs in discovery - {0}".format(oops))
 		sys.exit("1000")
 
-	return send_data_to_zabbix(xer, storage_name)
+	return send_data_to_zabbix(xer, storage_name, zbx_ip, zbx_port)
 
 
 
-def get_status_resources(hp_user, hp_password, hp_ip, hp_port, storage_name, list_CIM_classes):
+def get_status_resources(hp_user, hp_password, hp_ip, hp_port, storage_name, list_CIM_classes, zbx_ip, zbx_port):
 	hp_connect = hp_wbem_connect(hp_user, hp_password, hp_ip, hp_port)
 
 	state_of_instances = []
@@ -269,12 +275,12 @@ def get_status_resources(hp_user, hp_password, hp_ip, hp_port, storage_name, lis
 		hp_logger.error("An error occurs in getting status - {0}".format(oops))
 		sys.exit("1000")
 
-	return send_data_to_zabbix(state_of_instances, storage_name)
+	return send_data_to_zabbix(state_of_instances, storage_name, zbx_ip, zbx_port)
 
 
 
 
-def get_overprovisioning(hp_user, hp_password, hp_ip, hp_port, storage_name):
+def get_overprovisioning(hp_user, hp_password, hp_ip, hp_port, storage_name, zbx_ip, zbx_port):
 	hp_wbem_connection = hp_wbem_connect(hp_user, hp_password, hp_ip, hp_port)
 	hp_ssh_connection = hp_ssh_connect(hp_user, hp_password, hp_ip)
 
@@ -301,7 +307,7 @@ def get_overprovisioning(hp_user, hp_password, hp_ip, hp_port, storage_name):
 
 	hp_ssh_logout(hp_ssh_connection)
 
-	return send_data_to_zabbix(cpg_overprovisioning, storage_name)
+	return send_data_to_zabbix(cpg_overprovisioning, storage_name, zbx_ip, zbx_port)
 
 
 
@@ -326,6 +332,8 @@ def main():
 	hp_parser.add_argument('--hp_user', action="store", required=True)
 	hp_parser.add_argument('--hp_password', action="store", required=True)
 	hp_parser.add_argument('--storage_name', action="store", required=True)
+	hp_parser.add_argument('--zbx_ip', action='store')
+	hp_parser.add_argument('--zbx_port', action='store')
 
 	group = hp_parser.add_mutually_exclusive_group(required=True)
 	group.add_argument('--discovery', action ='store_true')
@@ -341,17 +349,26 @@ def main():
 
 	if arguments.discovery:
 		hp_logger.info("********************************* Discovery is starting *********************************")
-		result_discovery = discovering_resources(arguments.hp_user, arguments.hp_password, arguments.hp_ip, arguments.hp_port, arguments.storage_name, list_CIM_classes)
+		result_discovery = discovering_resources(
+			arguments.hp_user, arguments.hp_password, arguments.hp_ip,
+			arguments.hp_port, arguments.storage_name, list_CIM_classes,
+			arguments.zbx_ip, arguments.zbx_port)
 		hp_logger.info("********************************* Discovery is ended *********************************")
 		print (result_discovery)
 	elif arguments.status:
 		hp_logger.info("********************************* Get Status is starting *********************************")
-		result_status = get_status_resources(arguments.hp_user, arguments.hp_password, arguments.hp_ip, arguments.hp_port, arguments.storage_name, list_CIM_classes)
+		result_status = get_status_resources(
+			arguments.hp_user, arguments.hp_password, arguments.hp_ip,
+			arguments.hp_port, arguments.storage_name, list_CIM_classes,
+			arguments.zbx_ip, arguments.zbx_port)
 		hp_logger.info("********************************* Get Status is ended *********************************")
 		print (result_status)
 	elif arguments.overprovisioning:
 		hp_logger.info("********************************* Get overprovisioning is starting *********************************")
-		result_status = get_overprovisioning(arguments.hp_user, arguments.hp_password, arguments.hp_ip, arguments.hp_port, arguments.storage_name)
+		result_status = get_overprovisioning(
+			arguments.hp_user, arguments.hp_password, arguments.hp_ip,
+			arguments.hp_port, arguments.storage_name,
+			arguments.zbx_ip, arguments.zbx_port)
 		hp_logger.info("********************************* Get overprovisioning is ended *********************************")
 		print(result_status)
 	elif arguments.psu:
